@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocIntel — Document Intelligence Platform</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+
+    <!-- TOAST -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <div class="app">
+
+        <!-- ============================================================
+             SIDEBAR
+             ============================================================ -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <h1>DocIntel</h1>
+                <p>Document Intelligence Platform</p>
+            </div>
+
+            <nav class="sidebar-nav">
+                <!-- Navigation Items -->
+                <div class="nav-item active" data-panel="chat" onclick="switchPanel('chat')">
+                    <span class="nav-icon">&#9883;</span> Ask Questions
+                </div>
+                <div class="nav-item" data-panel="autofill" onclick="switchPanel('autofill')">
+                    <span class="nav-icon">&#9889;</span> Form Autofill
+                </div>
+                <div class="nav-item" data-panel="dictionary" onclick="switchPanel('dictionary')">
+                    <span class="nav-icon">&#128218;</span> Dictionary
+                </div>
+                <div class="nav-item" data-panel="upload" onclick="switchPanel('upload')">
+                    <span class="nav-icon">&#8686;</span> Upload Docs
+                </div>
+                <div class="nav-item" data-panel="documents" onclick="switchPanel('documents'); loadDocumentList();">
+                    <span class="nav-icon">&#128194;</span> Documents
+                </div>
+                <div class="nav-item" data-panel="search" onclick="switchPanel('search')">
+                    <span class="nav-icon">&#128269;</span> Search
+                </div>
+                <div class="nav-item" data-panel="templates" onclick="switchPanel('templates'); loadTemplates();">
+                    <span class="nav-icon">&#128203;</span> Templates
+                </div>
+                <div class="nav-item" data-panel="approvals" onclick="switchPanel('approvals'); loadApprovals();">
+                    <span class="nav-icon">&#9989;</span> Approvals <span class="nav-badge" id="approvalBadge" style="display:none;">0</span>
+                </div>
+                <div class="nav-item" data-panel="restricted" onclick="switchPanel('restricted'); loadRestrictedItems();">
+                    <span class="nav-icon">&#128683;</span> Restricted List
+                </div>
+
+                <!-- Chat History -->
+                <div class="nav-divider"></div>
+                <div class="nav-section-header">
+                    <span class="nav-section-title">Chat History</span>
+                    <div class="history-header-actions">
+                        <button class="btn-clear-history" onclick="clearAllChats()" title="Clear all chats">&#128465;</button>
+                        <button class="btn-new-chat" onclick="createNewChat()" title="New Chat">+ New</button>
+                    </div>
+                </div>
+                <div class="history-search-wrap">
+                    <input class="history-search" type="text" id="historySearchInput" placeholder="Search chats..." oninput="filterHistory(this.value)">
+                </div>
+                <div class="chat-history-list" id="chatHistoryList">
+                    <div class="history-empty" id="historyEmpty">
+                        <div class="history-empty-icon">&#128172;</div>
+                        No conversations yet<br><span style="font-size:0.65rem;opacity:0.7;">Ask a question to start</span>
+                    </div>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <!-- LLM Provider Selector -->
+                <div class="llm-provider-selector" id="llmProviderSelector">
+                    <label class="provider-label">LLM Provider</label>
+                    <div class="provider-toggle">
+                        <button class="provider-btn active" id="providerBtnGroq" onclick="switchLLMProvider('groq')" title="Groq Cloud (fast, requires API key)">
+                            &#9729;&#65039; Groq
+                        </button>
+                        <button class="provider-btn" id="providerBtnOllama" onclick="switchLLMProvider('ollama')" title="Ollama Local (private, requires local server)">
+                            &#128421;&#65039; Ollama
+                        </button>
+                    </div>
+                    <span class="provider-status" id="providerStatus"></span>
+                </div>
+                <div class="status-indicator checking" id="statusBadge" onclick="checkHealth()" title="Click to refresh">
+                    <span class="status-dot"></span>
+                    <span id="statusText">Checking...</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ============================================================
+             MAIN CONTENT AREA
+             ============================================================ -->
+        <div class="main">
+
+            <!-- CHAT PANEL -->
+            <div class="chat-panel active" id="panel-chat">
+                <div class="main-header">
+                    <div>
+                        <h2 id="chatHeaderTitle">New Chat</h2>
+                        <span class="main-header-sub">Query your documents using natural language</span>
+                    </div>
+                </div>
+
+                <div class="chat-messages" id="chatMessages">
+                    <div class="empty-state" id="emptyState">
+                        <div class="empty-icon">&#128172;</div>
+                        <p>No messages yet</p>
+                        <p class="hint">Upload a document first, then ask a question</p>
+                    </div>
+                </div>
+
+                <div class="chat-input-bar">
+                    <div class="chat-input-row">
+                        <input
+                            class="chat-input"
+                            type="text"
+                            id="questionInput"
+                            placeholder="Ask something about your documents..."
+                            autocomplete="off"
+                        >
+                        <button class="btn-voice" id="voiceBtn" onclick="toggleVoiceInput()" title="Voice input">
+                            <svg class="mic-icon" viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm-1-9a1 1 0 1 1 2 0v6a1 1 0 1 1-2 0V5zm6 6a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V21h2v-3.07A7 7 0 0 0 19 11h-2z"/></svg>
+                            <div class="voice-wave">
+                                <span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span>
+                            </div>
+                            <div class="voice-status" id="voiceStatus">
+                                <span id="voiceStatusText">Click to speak</span><span class="voice-timer" id="voiceTimer"></span>
+                            </div>
+                        </button>
+                        <button class="btn-send" id="askBtn" onclick="askQuestion()" title="Send">&#10148;</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AUTOFILL PANEL -->
+            <div class="panel" id="panel-autofill">
+                <div class="main-header">
+                    <div>
+                        <h2>Form Autofill</h2>
+                        <span class="main-header-sub">Upload a form to automatically fill using your knowledge base</span>
+                    </div>
+                </div>
+                <div class="main-body">
+                    <div class="section-group">
+                        <div class="section-label">Form File</div>
+                        <div class="af-upload-zone" id="autofillUploadZone">
+                            <div class="upload-icon">&#128203;</div>
+                            <p>Drop a form here or click to browse</p>
+                            <p class="supported">.pdf .docx .doc .rtf .xlsx .xls .csv .tsv .txt .md .jpg .png .webp</p>
+                            <input type="file" id="autofillFileInput" accept=".pdf,.docx,.doc,.rtf,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.jpg,.jpeg,.png,.webp,.heic,.heif,.svg,.ico,.jfif">
+                        </div>
+                        <div class="af-selected-file" id="autofillSelectedFile" style="display:none;">
+                            <span style="opacity:0.5;">&#128196;</span>
+                            <span class="file-name" id="autofillFileName"></span>
+                            <span class="remove-btn" id="autofillRemoveFile" title="Remove">&times;</span>
+                        </div>
+                    </div>
+                    <div class="section-group">
+                        <div class="section-label">Configuration</div>
+                        <div class="af-controls">
+                            <div class="field-group">
+                                <label for="companyIdInput">Company ID (optional)</label>
+                                <input type="text" id="companyIdInput" placeholder="e.g. dorial_telecom">
+                            </div>
+                            <button class="btn btn-accent" id="autofillBtn" onclick="runAutofill()" disabled>
+                                &#9889; Autofill
+                            </button>
+                            <button class="btn btn-ghost" id="compareBtn" onclick="runCompare()" disabled>
+                                &#8644; Compare
+                            </button>
+                            <button class="btn btn-ghost" id="buildProfileBtn" onclick="buildProfile()">
+                                &#9881; Build Profile
+                            </button>
+                            <button class="btn btn-ghost" id="submitApprovalBtn" onclick="submitForApproval()" style="display:none;">
+                                &#9989; Submit for Approval
+                            </button>
+                        </div>
+                    </div>
+                    <div class="af-progress" id="autofillProgress">
+                        <div class="progress-track">
+                            <div class="progress-fill" id="autofillProgressBar"></div>
+                        </div>
+                        <div class="progress-text" id="autofillProgressText">Processing...</div>
+                    </div>
+                    <div class="results-area" id="autofillResults" style="display:none;"></div>
+                </div>
+            </div>
+
+            <!-- DICTIONARY PANEL -->
+            <div class="panel" id="panel-dictionary">
+                <div class="main-header">
+                    <div>
+                        <h2>Dictionary</h2>
+                        <span class="main-header-sub">Look up the meaning and function of words from your documents</span>
+                    </div>
+                </div>
+                <div class="main-body">
+                    <div class="dict-search-row">
+                        <input
+                            type="text"
+                            id="dictInput"
+                            placeholder="Enter a word or term (e.g. USF, KYC, Aggregator...)"
+                            autocomplete="off"
+                        >
+                        <button class="btn btn-primary" id="dictBtn" onclick="lookupTerm()">Define</button>
+                    </div>
+                    <div id="dictResultArea"></div>
+                    <div class="dict-history" id="dictHistory" style="display:none;">
+                        <div class="dict-history-label">Recent Lookups</div>
+                        <div class="dict-history-chips" id="dictHistoryChips"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- UPLOAD PANEL -->
+            <div class="panel" id="panel-upload">
+                <div class="main-header">
+                    <div>
+                        <h2>Upload Documents</h2>
+                        <span class="main-header-sub">Add files to the knowledge base — supports Documents, Spreadsheets &amp; Images</span>
+                    </div>
+                </div>
+                <div class="main-body">
+                    <div class="upload-zone" id="uploadZone">
+                        <div class="upload-icon">&#128194;</div>
+                        <p>Click or drag &amp; drop files here</p>
+                        <p class="supported">.pdf .docx .doc .rtf .xlsx .xls .csv .tsv .txt .md .jpg .png .webp .heic .svg</p>
+                        <input type="file" id="fileInput" accept=".pdf,.docx,.doc,.rtf,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.jpg,.jpeg,.png,.webp,.heic,.heif,.svg,.ico,.jfif" multiple>
+                    </div>
+                    <div class="upload-status" id="uploadStatus"></div>
+                </div>
+            </div>
+
+            <!-- DOCUMENTS PANEL -->
+            <div class="panel" id="panel-documents">
+                <div class="main-header">
+                    <div>
+                        <h2>Document Library</h2>
+                        <span class="main-header-sub">Browse, preview, and manage uploaded documents with version history</span>
+                    </div>
+                </div>
+                <div class="main-body">
+                    <div id="docListContainer">
+                        <p style="color:var(--text-muted);font-size:0.82rem;">Loading documents...</p>
+                    </div>
+                    <div id="docPreviewContainer" style="display:none;margin-top:20px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                            <h3 id="docPreviewTitle" style="font-size:0.88rem;font-weight:600;"></h3>
+                            <button class="btn btn-ghost" onclick="closeDocPreview()" style="font-size:0.75rem;">Close Preview</button>
+                        </div>
+                        <div id="docPreviewContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SEARCH PANEL -->
+            <div class="panel" id="panel-search">
+                <div class="main-header">
+                    <div>
+                        <h2>Semantic Search</h2>
+                        <span class="main-header-sub">Search across all documents using natural language or entity fields</span>
+                    </div>
+                </div>
+                <div class="main-body">
+                    <div class="tab-bar">
+                        <button class="tab-btn active" onclick="switchSearchTab('semantic')">Document Search</button>
+                        <button class="tab-btn" onclick="switchSearchTab('entity')">Entity Search</button>
+                    </div>
+                    <div class="tab-content active" id="searchTab-semantic">
+                        <div class="dict-search-row">
+                            <input type="text" id="searchQueryInput" placeholder="Search across all documents..." autocomplete="off">
+                            <button class="btn btn-primary" onclick="runSemanticSearch()">Search</button>
+                        </div>
+                        <div class="search-results" id="searchResults"></div>
+                    </div>
+                    <div class="tab-content" id="searchTab-entity">
+                        <div class="dict-search-row" style="flex-wrap:wrap;gap:8px;">
+                            <input type="text" id="entitySearchQuery" placeholder="Company name, EIN, or keyword..." autocomplete="off" style="flex:2;">
+                            <button class="btn btn-primary" onclick="runEntitySearch()">Search Entities</button>
+                        </div>
+                        <div class="search-results" id="entitySearchResults"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TEMPLATES PANEL -->
+            <div class="panel" id="panel-templates">
+                <div class="main-header">
+                    <div>
+                        <h2>Form Template Library</h2>
+                        <span class="main-header-sub">Save and reuse form templates for instant autofill</span>
+                    </div>
+                </div>
+                <div class="main-body">
+                    <div id="templateListContainer">
+                        <p style="color:var(--text-muted);font-size:0.82rem;">Loading templates...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- APPROVALS PANEL -->
+            <div class="panel" id="panel-approvals">
+                <div class="main-header">
+                    <div>
+                        <h2>Approval Queue</h2>
+                        <span class="main-header-sub">Review and approve high-stakes autofill submissions</span>
+                    </div>
+                </div>
+                <div class="main-body">
+                    <div class="tab-bar">
+                        <button class="tab-btn active" onclick="switchApprovalTab('pending')">Pending</button>
+                        <button class="tab-btn" onclick="switchApprovalTab('approved')">Approved</button>
+                        <button class="tab-btn" onclick="switchApprovalTab('rejected')">Rejected</button>
+                        <button class="tab-btn" onclick="switchApprovalTab('all')">All</button>
+                    </div>
+                    <div class="approval-list" id="approvalListContainer">
+                        <p style="color:var(--text-muted);font-size:0.82rem;">Loading...</p>
+                    </div>
+                    <div id="approvalDetailContainer" style="display:none;margin-top:20px;"></div>
+                </div>
+            </div>
+
+            <!-- RESTRICTED ITEMS PANEL -->
+            <div class="panel" id="panel-restricted">
+                <div class="main-header">
+                    <div>
+                        <h2>Restricted / Blocked Items</h2>
+                        <span class="main-header-sub">Services not provided, illegal activities, and scam/fraud patterns</span>
+        </div>
+    </div>
+                <div class="main-body" style="overflow-y:auto;">
+                    <!-- File Upload -->
+                    <div class="ri-upload-section" id="riUploadZone"
+                         onclick="if(!document.getElementById('riUploadProgress').classList.contains('active'))document.getElementById('riFileInput').click()"
+                         title="Upload a file to auto-extract restricted items">
+                        <div class="ri-upload-icon">&#128196;</div>
+                        <p>Upload a file to extract restricted items</p>
+                        <p class="ri-upload-hint">PDF, DOCX, TXT, etc. — The AI will read &amp; categorize restricted items for you</p>
+                        <input type="file" id="riFileInput" accept=".pdf,.docx,.doc,.txt,.rtf,.md,.xlsx,.xls,.csv" onchange="handleRiFileUpload(this)">
+                        <div class="ri-upload-progress" id="riUploadProgress">
+                            <div class="ri-upload-bar"><div class="ri-upload-bar-fill"></div></div>
+                            <div class="ri-upload-status" id="riUploadStatus">Extracting items…</div>
+        </div>
+        </div>
+
+                    <!-- Stats -->
+                    <div class="ri-stats" id="riStats">
+                        <div class="ri-stat-card np">
+                            <div class="ri-stat-num" id="riCountNP">0</div>
+                            <div class="ri-stat-label">Not Provided</div>
+        </div>
+                        <div class="ri-stat-card il">
+                            <div class="ri-stat-num" id="riCountIL">0</div>
+                            <div class="ri-stat-label">Illegal</div>
+        </div>
+                        <div class="ri-stat-card sf">
+                            <div class="ri-stat-num" id="riCountSF">0</div>
+                            <div class="ri-stat-label">Scam / Fraud</div>
+        </div>
+    </div>
+
+                    <!-- Controls -->
+                    <div class="ri-controls">
+                        <input class="ri-search" type="text" id="riSearchInput" placeholder="Search restricted items..." oninput="filterRestrictedItems()">
+                        <button class="ri-filter-btn active" data-cat="all" onclick="setRiFilter('all', this)">All</button>
+                        <button class="ri-filter-btn" data-cat="not_provided" onclick="setRiFilter('not_provided', this)">Not Provided</button>
+                        <button class="ri-filter-btn" data-cat="illegal" onclick="setRiFilter('illegal', this)">Illegal</button>
+                        <button class="ri-filter-btn" data-cat="scam_fraud" onclick="setRiFilter('scam_fraud', this)">Scam / Fraud</button>
+                        <button class="ri-add-btn" onclick="openRiModal()">+ Add Item</button>
+                    </div>
+
+                    <!-- Items List -->
+                    <div class="ri-list" id="riListContainer">
+                        <div class="ri-empty" id="riEmpty">
+                            <div class="ri-empty-icon">&#128683;</div>
+                            <p>No restricted items yet</p>
+                            <p class="hint">Add items that your company does NOT provide, things that are illegal, or known scam/fraud patterns</p>
+                    </div>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- /.main -->
+    </div><!-- /.app -->
+
+    <!-- ============================================================
+         MODALS
+         ============================================================ -->
+
+    <!-- Restricted Items — Add/Edit Modal -->
+    <div class="ri-modal-overlay" id="riModalOverlay" onclick="if(event.target===this)closeRiModal()">
+        <div class="ri-modal">
+            <h3 id="riModalTitle">Add Restricted Item</h3>
+            <input type="hidden" id="riEditId" value="">
+
+            <label>Title *</label>
+            <input type="text" id="riFormTitle" placeholder="e.g. Robocalling services, Drug trafficking…">
+
+            <label>Category *</label>
+            <select id="riFormCategory">
+                <option value="not_provided">Not Provided — We don't offer this</option>
+                <option value="illegal">Illegal — Prohibited by law</option>
+                <option value="scam_fraud">Scam / Fraud — Known fraudulent activity</option>
+            </select>
+
+            <label>Description</label>
+            <textarea id="riFormDesc" placeholder="Optional: explain why this is restricted, any details…"></textarea>
+
+            <label>Source Document (optional)</label>
+            <input type="text" id="riFormSource" placeholder="e.g. NOC Training Manual.pdf">
+
+            <div class="ri-modal-actions">
+                <button class="ri-cancel" onclick="closeRiModal()">Cancel</button>
+                <button class="ri-save" onclick="saveRiItem()">Save Item</button>
+                    </div>
+                </div>
+                </div>
+
+    <!-- Restricted Items — Review Extracted Items Modal -->
+    <div class="ri-review-overlay" id="riReviewOverlay" onclick="if(event.target===this)closeRiReview()">
+        <div class="ri-review-modal">
+            <div class="ri-review-header">
+                <h3>Review Extracted Items</h3>
+                <span class="ri-review-count" id="riReviewCount">0 items found</span>
+                        </div>
+            <div class="ri-review-list" id="riReviewList"></div>
+            <div class="ri-review-actions">
+                <button class="ri-select-all" onclick="toggleAllRiReview()">Select / Deselect All</button>
+                <div style="display:flex;gap:8px;">
+                    <button class="ri-cancel" onclick="closeRiReview()">Cancel</button>
+                    <button class="ri-save" onclick="addSelectedRiItems()">Add Selected</button>
+                    </div>
+                    </div>
+                </div>
+    </div>
+
+    <!-- MOBILE BOTTOM BAR -->
+    <div class="mobile-bar" id="mobileBar">
+        <div class="mob-item active" data-panel="chat" onclick="switchPanel('chat')">
+            <span class="mob-icon">&#9883;</span> Chat
+                                </div>
+        <div class="mob-item" data-panel="autofill" onclick="switchPanel('autofill')">
+            <span class="mob-icon">&#9889;</span> Autofill
+                                </div>
+        <div class="mob-item" data-panel="dictionary" onclick="switchPanel('dictionary')">
+            <span class="mob-icon">&#128218;</span> Dict
+                            </div>
+        <div class="mob-item" data-panel="upload" onclick="switchPanel('upload')">
+            <span class="mob-icon">&#8686;</span> Upload
+                            </div>
+        <div class="mob-item" data-panel="search" onclick="switchPanel('search')">
+            <span class="mob-icon">&#128269;</span> Search
+                        </div>
+                    </div>
+
+    <!-- Application JavaScript -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

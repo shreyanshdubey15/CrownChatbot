@@ -1,0 +1,68 @@
+############################
+# 🔐 Secrets
+############################
+.env
+.env.*
+*.env
+
+############################
+# 🐍 Virtual Environment
+############################
+env/
+venv/
+.venv/
+libbb/
+
+############################
+# Python Cache
+############################
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+############################
+# Cursor IDE
+############################
+.cursor/
+
+############################
+# AI / RAG Generated Data
+############################
+data/uploads/
+data/audit_trail/
+data/autofill_temp/
+data/entity_store/
+data/event_log/
+
+# Structured runtime memory
+data/structured_memory.json
+data/uploaded_files.json
+
+############################
+# Vector DB / Embeddings
+############################
+*.faiss
+*.db
+*.sqlite3
+*.parquet
+
+############################
+# Logs
+############################
+*.log
+
+############################
+# OS / Editor Junk
+############################
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+############################
+# Testing / coverage
+############################
+.pytest_cache/
+.coverage
+htmlcov/

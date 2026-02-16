@@ -1,0 +1,175 @@
+{
+  "items": [
+    {
+      "id": "2cbf3ee6-6366-47da-8dfd-5937e8d6b853",
+      "title": "India to India Local ANI",
+      "category": "not_provided",
+      "description": "Local ANI for India to India calls is not supported or provided",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.199167+00:00",
+      "deleted": false
+    },
+    {
+      "id": "2b0d13bc-d153-43dc-9d18-874ccc8951cc",
+      "title": "Fake Traffic Profiles",
+      "category": "scam_fraud",
+      "description": "Generating or using fake traffic profiles is prohibited",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.223892+00:00",
+      "deleted": false
+    },
+    {
+      "id": "cb856b8c-a18c-4ca1-a1bb-30014863239b",
+      "title": "Scam Traffic",
+      "category": "scam_fraud",
+      "description": "Any form of scam traffic is strictly prohibited",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.255877+00:00",
+      "deleted": false
+    },
+    {
+      "id": "98fa4fe9-03a7-4e82-b653-c3bc4c9ecbb9",
+      "title": "F.E. | False Answer Traffic Profile",
+      "category": "scam_fraud",
+      "description": "False answer (F.E.) traffic profiles are not allowed",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.283137+00:00",
+      "deleted": false
+    },
+    {
+      "id": "e69ff3ad-c4f2-494b-959b-10b97be18dbd",
+      "title": "AI Voice and Financial Content",
+      "category": "not_provided",
+      "description": "AI-generated voice calls with financial content are not provided",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.310930+00:00",
+      "deleted": false
+    },
+    {
+      "id": "206aef64-7a46-4112-b370-71475f949719",
+      "title": "Final Expense Insurance",
+      "category": "not_provided",
+      "description": "Final expense insurance campaigns are not provided",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.341461+00:00",
+      "deleted": false
+    },
+    {
+      "id": "a1d070b6-8249-48f3-8c89-3de98b74c19b",
+      "title": "Amazon",
+      "category": "not_provided",
+      "description": "Amazon-related campaigns or impersonation calls are not provided",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.364986+00:00",
+      "deleted": false
+    },
+    {
+      "id": "743e5afb-c9a3-4df6-b3a5-a875927f0e71",
+      "title": "IVR / Press 1",
+      "category": "not_provided",
+      "description": "IVR press-1 campaigns are not provided or supported",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.389420+00:00",
+      "deleted": false
+    },
+    {
+      "id": "2604fb54-dc61-4f56-84fb-a254dd6b4dd2",
+      "title": "Forex / Crypto Investment Promotion",
+      "category": "scam_fraud",
+      "description": "Forex and cryptocurrency investment promotion calls are prohibited",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.421282+00:00",
+      "deleted": false
+    },
+    {
+      "id": "88541e90-63a0-4566-8797-e56fc59501c1",
+      "title": "Duct Cleaning Campaigns",
+      "category": "not_provided",
+      "description": "Duct cleaning telemarketing campaigns are not provided",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.455403+00:00",
+      "deleted": false
+    },
+    {
+      "id": "f9a1815a-5842-4fa5-a1d9-45da36a94bff",
+      "title": "Tax Scam Calls / IRS",
+      "category": "illegal",
+      "description": "IRS impersonation and tax scam calls are illegal under federal law",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.487483+00:00",
+      "deleted": false
+    },
+    {
+      "id": "dc520845-efa6-45ba-b1be-d353aae1b747",
+      "title": "Social Security Scam (SSA Scam)",
+      "category": "illegal",
+      "description": "Social Security Administration impersonation scam calls are illegal",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.514610+00:00",
+      "deleted": false
+    },
+    {
+      "id": "e20dd86c-e3ee-497b-ae98-ab1509ddf484",
+      "title": "Tech Support Scam",
+      "category": "scam_fraud",
+      "description": "Tech support scam calls pretending to be from Microsoft, Apple, etc. are prohibited",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.546817+00:00",
+      "deleted": false
+    },
+    {
+      "id": "4bc9c30c-cb3e-46b5-9131-c2bd67e8f80e",
+      "title": "Warranty / Auto Warranty Robocalls",
+      "category": "scam_fraud",
+      "description": "Extended warranty and auto warranty robocalls are prohibited",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.588522+00:00",
+      "deleted": false
+    },
+    {
+      "id": "eae09c57-7245-49ed-b91d-0a020123999a",
+      "title": "Loan / Debt Relief Scam",
+      "category": "scam_fraud",
+      "description": "Loan and debt relief scam calls are prohibited",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.616543+00:00",
+      "deleted": false
+    },
+    {
+      "id": "7e9b73a9-ac5a-4653-aec3-da3024d1b0a0",
+      "title": "Lottery / Prize Scam",
+      "category": "scam_fraud",
+      "description": "Lottery and prize notification scam calls are prohibited",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.652649+00:00",
+      "deleted": false
+    },
+    {
+      "id": "d045e272-9184-45bd-8e6d-440f9605f0ff",
+      "title": "Mobile Selling",
+      "category": "not_provided",
+      "description": "Mobile phone selling campaigns are not provided",
+      "added_by": "admin",
+      "source_document": "NOC Training Manual.pdf",
+      "created_at": "2026-02-14T12:06:08.688633+00:00",
+      "deleted": false
+    }
+  ],
+  "version": 18
+}
