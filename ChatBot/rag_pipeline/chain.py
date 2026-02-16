@@ -5,9 +5,12 @@ Hybrid-retrieval backed Q&A with conversation history support.
 Uses the unified LLM client wrapper (Groq / Ollama).
 """
 
+import logging
 from rag_pipeline.retriever import Retriever
 from rag_pipeline.llm_client import get_sync_client, get_model
 from memory.restricted_items_store import get_all_items as get_restricted_items
+
+logger = logging.getLogger("rag.chain")
 
 
 # Category display labels
@@ -125,12 +128,12 @@ DOCUMENT CONTEXT ({len(context_blocks)} relevant sections retrieved):
         # 1. Retrieve relevant chunks (hybrid: BM25 + vector)
         docs = self.retriever.search(query, top_k=self.RETRIEVAL_TOP_K)
 
-        print(f"[RAG] Query: {query[:80]}...")
-        print(f"[RAG] Retrieved {len(docs)} chunks from {len(set(d.get('source','') for d in docs))} documents")
+        unique_sources = set(d.get('source', '') for d in docs)
+        logger.info("[RETRIEVE] %d chunks from %d docs for: '%s'", len(docs), len(unique_sources), query[:80])
         for i, d in enumerate(docs):
             src = d.get("source", "?")
             method = d.get("retrieval_source", "?")
-            print(f"  [{i+1}] {src} (via {method}) — {d['text'][:60]}...")
+            logger.debug("  [%d] %s (via %s) -- %s", i + 1, src, method, d['text'][:60])
 
         # 2. Build system prompt with sourced context
         system_prompt = self._build_system_prompt(docs)
@@ -151,7 +154,7 @@ DOCUMENT CONTEXT ({len(context_blocks)} relevant sections retrieved):
 
         # 4. Call LLM
         model = get_model("chat")
-        print(f"[RAG] Calling LLM model: {model}")
+        logger.info("[LLM] Calling model: %s  (%d messages)", model, len(messages))
 
         response = self.client.chat.completions.create(
             model=model,
@@ -160,7 +163,7 @@ DOCUMENT CONTEXT ({len(context_blocks)} relevant sections retrieved):
         )
 
         answer = response.choices[0].message.content
-        print(f"[RAG] Answer length: {len(answer)} chars")
+        logger.info("[OK] Answer: %d chars", len(answer))
 
         return {
             "answer": answer,

@@ -19,12 +19,15 @@ import re
 import json
 import asyncio
 import hashlib
+import logging
 from typing import List, Dict, Optional, Any
 from dotenv import load_dotenv
 from rag_pipeline.embeddings import EmbeddingModel
 from rag_pipeline.llm_client import get_sync_client, get_async_client, get_model
 
 load_dotenv()
+
+logger = logging.getLogger("autofill.engine")
 
 # ================================================================
 #  MODEL CONFIGURATION
@@ -562,7 +565,7 @@ class AutofillEngine:
 
     def _detect_fields_single(self, text_chunk: str) -> List[Dict[str, str]]:
         """Detect fields from a single chunk of form text."""
-        print(f"[AUTOFILL] Detecting fields... ({len(text_chunk)} chars, model={DETECT_MODEL})")
+        logger.info("[DETECT] Detecting fields... (%d chars, model=%s)", len(text_chunk), DETECT_MODEL)
         prompt = (
             "You are a Document Structure Parser for enterprise compliance forms "
             "(KYC, telecom, FCC, tax, service agreements, addenda, etc.).\n\n"
@@ -605,7 +608,7 @@ class AutofillEngine:
             temperature=0.05,
             max_tokens=4096,
         )
-        print(f"[AUTOFILL] Field detection complete ({_time.time() - _t0:.1f}s)")
+        logger.info("[DETECT] Field detection complete (%.1fs)", _time.time() - _t0)
 
         raw = response.choices[0].message.content.strip()
 
@@ -730,7 +733,7 @@ class AutofillEngine:
         Temperature 0.0 — compliance-grade, fully deterministic.
         Accepts memory_value for cross-validation in confidence engine.
         """
-        print(f"[AUTOFILL]   Extracting: {field_name} ({field_type})...")
+        logger.info("  [EXTRACT] %s (%s)", field_name, field_type)
         # Step 4: context filtering
         filtered = filter_chunks_for_field(chunks, canonical)
 
@@ -843,7 +846,7 @@ class AutofillEngine:
                 }
 
         except Exception as exc:
-            print(f"[AUTOFILL ERROR] Field '{field_name}': {str(exc)[:150]}")
+            logger.error("  [ERR] Field '%s': %s", field_name, str(exc)[:150])
 
         return {
             "field": field_name,
@@ -1144,11 +1147,12 @@ class AutofillEngine:
         8.   Assemble + cache to memory
         """
         # Step 1
-        print(f"[AUTOFILL] === Starting autofill for '{document_name}' ===")
+        logger.info("=" * 55)
+        logger.info("[AUTOFILL] PIPELINE START: '%s'  company=%s", document_name, company_id or "(none)")
         raw_fields = await asyncio.to_thread(self.detect_fields, form_text)
 
         if not raw_fields:
-            print("[AUTOFILL] No fillable fields detected.")
+            logger.warning("[WARN] No fillable fields detected in form")
             return {
                 "document": document_name,
                 "fields": [],
@@ -1157,14 +1161,21 @@ class AutofillEngine:
 
         # Step 2
         enriched = self.normalize_fields(raw_fields)
-        print(f"[AUTOFILL] Detected {len(enriched)} fields. Starting extraction...")
+        logger.info("[STEP 2] Detected %d fields -> starting parallel extraction...", len(enriched))
+        for ef in enriched:
+            logger.debug("   field: %-30s canonical=%s", ef["name"], ef.get("canonical", "-"))
 
         # Steps 3-6 (parallel — first pass)
         tasks = [self._process_field(ef, company_id) for ef in enriched]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         filled = sum(1 for r in results if not isinstance(r, BaseException) and r.get("value"))
-        print(f"[AUTOFILL] First pass: {filled}/{len(enriched)} fields extracted")
+        logger.info("[PASS 1] %d/%d fields extracted", filled, len(enriched))
+        for r in results:
+            if not isinstance(r, BaseException):
+                val = r.get("value")
+                conf = r.get("confidence", 0)
+                logger.info("   %-30s -> %s  (conf=%.2f)", r.get("field", "?"), val[:50] if val else "NULL", conf)
 
         # Step 7 — Re-extraction pass for null fields (second chance)
         retry_indices: List[int] = []
@@ -1175,7 +1186,7 @@ class AutofillEngine:
                 retry_tasks.append(self._retry_null_field(ef, company_id))
 
         if retry_tasks:
-            print(f"[AUTOFILL] Re-extracting {len(retry_tasks)} null fields (2nd pass)...")
+            logger.info("[RETRY] Re-extracting %d null fields (2nd pass)...", len(retry_tasks))
             retry_results = await asyncio.gather(*retry_tasks, return_exceptions=True)
             for idx, retry_result in zip(retry_indices, retry_results):
                 if not isinstance(retry_result, BaseException) and retry_result.get("value"):
@@ -1221,11 +1232,16 @@ class AutofillEngine:
 
         # Persist to structured memory (keeps it fresh for next autofill)
         if company_id and memory_updates:
+            logger.info("[CACHE] Caching %d fields to structured memory for '%s'", len(memory_updates), company_id)
             await asyncio.to_thread(
                 update_company_profile, company_id, memory_updates,
             )
 
         filled = sum(1 for f in final_fields if f.get("value"))
+        logger.info("=" * 55)
+        logger.info("[AUTOFILL] COMPLETE: %d/%d filled  (mem=%d vec=%d combined=%d)",
+                     filled, len(final_fields), memory_hits, vector_hits, combined_hits)
+        logger.info("=" * 55)
         return {
             "document": document_name,
             "fields": final_fields,

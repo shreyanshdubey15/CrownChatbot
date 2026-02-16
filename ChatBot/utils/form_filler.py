@@ -8,7 +8,10 @@ radio buttons, and table cells.
 
 import re
 import shutil
+import logging
 from typing import Dict, Optional
+
+logger = logging.getLogger("form_filler")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -25,18 +28,26 @@ def fill_pdf_form(src_path: str, dst_path: str, value_map: Dict[str, str]) -> No
     """
     import fitz
 
+    logger.info("[PDF-FILL] %s -> %s  (%d map entries)", src_path, dst_path, len(value_map))
+
     pdf = fitz.open(src_path)
     lower_map = {k.lower().strip(): v for k, v in value_map.items()}
 
     # Build a flat set of all values (lowered) for checkbox matching
     all_values_lower = {v.lower().strip() for v in value_map.values() if v}
+    filled_count = 0
+    skipped_count = 0
 
-    for page in pdf:
+    for page_num, page in enumerate(pdf, 1):
         # Collect text blocks for label matching
         text_blocks = _extract_text_blocks(page)
+        widgets = list(page.widgets())
+        if widgets:
+            logger.info("  Page %d: %d widgets, %d text blocks", page_num, len(widgets), len(text_blocks))
 
-        for widget in page.widgets():
+        for widget in widgets:
             ft = widget.field_type
+            wname = widget.field_name or "(unnamed)"
 
             # ============= TEXT / COMBO / LIST FIELDS =============
             if ft in (fitz.PDF_WIDGET_TYPE_TEXT,
@@ -47,11 +58,16 @@ def fill_pdf_form(src_path: str, dst_path: str, value_map: Dict[str, str]) -> No
                     widget, text_blocks, lower_map,
                 )
                 if matched_value is not None:
+                    logger.info("    [OK] Widget '%s' -> \"%s\"", wname, str(matched_value)[:60])
                     widget.field_value = str(matched_value)
+                    filled_count += 1
                     try:
                         widget.update()
                     except Exception:
                         pass
+                else:
+                    logger.debug("    [ ] Widget '%s' -> no match", wname)
+                    skipped_count += 1
 
             # ============= CHECKBOX FIELDS =============
             elif ft == fitz.PDF_WIDGET_TYPE_CHECKBOX:
@@ -63,6 +79,7 @@ def fill_pdf_form(src_path: str, dst_path: str, value_map: Dict[str, str]) -> No
 
     pdf.save(dst_path)
     pdf.close()
+    logger.info("[PDF-FILL] DONE: %d filled, %d skipped", filled_count, skipped_count)
 
 
 def fill_docx_form(src_path: str, dst_path: str, value_map: Dict[str, str]) -> None:
@@ -77,11 +94,15 @@ def fill_docx_form(src_path: str, dst_path: str, value_map: Dict[str, str]) -> N
     """
     from docx import Document as DocxDocument
 
+    logger.info("[DOCX-FILL] %s -> %s  (%d map entries)", src_path, dst_path, len(value_map))
+
     doc = DocxDocument(src_path)
     lower_map = {k.lower().strip(): v for k, v in value_map.items()}
     all_values_lower = {v.lower().strip() for v in value_map.values() if v}
 
     # ========== Strategy 1: Fill table cells (label → adjacent value cell) ==========
+    logger.info("  Strategy 1: Scanning table cells...")
+    table_fills = 0
     for table in doc.tables:
         for row in table.rows:
             cells = row.cells
@@ -103,16 +124,15 @@ def fill_docx_form(src_path: str, dst_path: str, value_map: Dict[str, str]) -> N
                         matched_value = lower_map[cell_no_parens]
 
                 if matched_value is None:
-                    for field_key, val in lower_map.items():
-                        if _fuzzy_field_match(cell_lower, field_key):
-                            matched_value = val
-                            break
+                    matched_value = _find_best_match_value(cell_lower, lower_map)
 
                 if matched_value is not None and i + 1 < len(cells):
                     target_cell = cells[i + 1]
                     target_text = target_cell.text.strip()
                     if not target_text or _is_placeholder(target_text):
+                        logger.info("    [OK] Table cell '%s' -> \"%s\"", cell_text[:40], str(matched_value)[:60])
                         _set_cell_text(target_cell, str(matched_value))
+                        table_fills += 1
 
         # Also try: label and value in SAME cell separated by colon or underscores
         for row in table.rows:
@@ -127,10 +147,7 @@ def fill_docx_form(src_path: str, dst_path: str, value_map: Dict[str, str]) -> N
                         if label_part in lower_map:
                             matched_value = lower_map[label_part]
                         else:
-                            for field_key, val in lower_map.items():
-                                if _fuzzy_field_match(label_part, field_key):
-                                    matched_value = val
-                                    break
+                            matched_value = _find_best_match_value(label_part, lower_map)
                         if matched_value is not None:
                             # Rewrite cell: "Label: <value>"
                             new_text = parts[0].strip() + ": " + str(matched_value)
@@ -145,17 +162,23 @@ def fill_docx_form(src_path: str, dst_path: str, value_map: Dict[str, str]) -> N
                                             run.text = ""
                                     break
 
+    logger.info("  Strategy 1 done: %d cells filled", table_fills)
+
     # ========== Strategy 2: Unicode checkboxes ☐ → ☑ in ALL elements ==========
+    logger.info("  Strategy 2: Unicode checkboxes...")
     _fill_unicode_checkboxes_in_tables(doc, lower_map, all_values_lower)
     _fill_unicode_checkboxes_in_paragraphs(doc, lower_map, all_values_lower)
 
     # ========== Strategy 3: SDT content control checkboxes ==========
+    logger.info("  Strategy 3: SDT content controls...")
     _fill_sdt_checkboxes(doc, lower_map, all_values_lower)
 
     # ========== Strategy 4: Legacy form field checkboxes ==========
+    logger.info("  Strategy 4: Legacy form fields...")
     _fill_legacy_checkboxes(doc, lower_map, all_values_lower)
 
     # ========== Strategy 5: Inline placeholders in paragraphs ==========
+    logger.info("  Strategy 5: Inline placeholders...")
     for para in doc.paragraphs:
         para_text = para.text
         for field_key, val in lower_map.items():
@@ -175,9 +198,11 @@ def fill_docx_form(src_path: str, dst_path: str, value_map: Dict[str, str]) -> N
                 break
 
     # ========== Strategy 6: Bracket checkboxes [ ] → [X] ==========
+    logger.info("  Strategy 6: Bracket checkboxes...")
     _fill_bracket_checkboxes(doc, lower_map, all_values_lower)
 
     doc.save(dst_path)
+    logger.info("[DOCX-FILL] DONE: saved -> %s", dst_path)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -208,10 +233,12 @@ def _extract_text_blocks(page) -> list:
 
 def _match_widget_to_value(widget, text_blocks, lower_map) -> Optional[str]:
     """Try to match a PDF widget to an autofill value using multiple strategies."""
-    # Strategy 1: Direct match on widget.field_name
     wname = (widget.field_name or "").strip()
     wname_lower = wname.lower()
+
+    # Strategy 1: Direct match on widget.field_name
     if wname_lower in lower_map:
+        logger.debug("    match '%s' via direct name -> '%s'", wname, str(lower_map[wname_lower])[:40])
         return lower_map[wname_lower]
 
     # Strategy 1b: Strip common suffixes/prefixes from widget name
@@ -226,45 +253,55 @@ def _match_widget_to_value(widget, text_blocks, lower_map) -> Optional[str]:
     if wname_spaced and wname_spaced in lower_map:
         return lower_map[wname_spaced]
 
-    # Strategy 2: Fuzzy match on widget.field_name
-    for field_key, val in lower_map.items():
-        if _fuzzy_field_match(wname_lower, field_key):
-            return val
+    # Strategy 2: Best fuzzy match on widget.field_name
+    best = _find_best_match_value(wname_lower, lower_map)
+    if best is not None:
+        return best
     if wname_clean and wname_clean != wname_lower:
-        for field_key, val in lower_map.items():
-            if _fuzzy_field_match(wname_clean, field_key):
-                return val
+        best = _find_best_match_value(wname_clean, lower_map)
+        if best is not None:
+            return best
 
     # Strategy 3: Match using nearest text label (primary — left/above)
     if text_blocks:
         label = _find_nearest_label(widget.rect, text_blocks)
         if label:
             label_lower = label.lower().strip().rstrip(":").strip()
+            logger.debug("    nearest label for '%s': '%s'", wname, label[:50])
             if label_lower in lower_map:
                 return lower_map[label_lower]
             # Try without parenthetical content
             label_no_parens = re.sub(r"\([^)]*\)", "", label_lower).strip()
             if label_no_parens and label_no_parens in lower_map:
                 return lower_map[label_no_parens]
-            for field_key, val in lower_map.items():
-                if _fuzzy_field_match(label_lower, field_key):
-                    return val
+            # NOTE: Do NOT return fuzzy matches from nearest label alone —
+            # first check if a nearby label gives a DIRECT match (Strategy 4).
+            # This prevents a wrong fuzzy match from overriding a correct
+            # direct match on a slightly farther label.
 
-        # Strategy 4: Try multiple nearby labels
+        # Strategy 4: Try multiple nearby labels — DIRECT matches first
         nearby = _find_nearby_texts(widget.rect, text_blocks, max_dist=250.0, limit=5)
         for candidate in nearby:
             cand_lower = candidate.lower().strip().rstrip(":").strip()
             if cand_lower in lower_map:
+                logger.debug("    nearby direct match for '%s': label='%s'", wname, candidate[:50])
                 return lower_map[cand_lower]
-            # Also try without parenthetical
             cand_no_parens = re.sub(r"\([^)]*\)", "", cand_lower).strip()
             if cand_no_parens and cand_no_parens in lower_map:
                 return lower_map[cand_no_parens]
+
+        # Strategy 5: Fuzzy matches on nearby labels (fallback)
+        # Try nearest label first, then other nearby labels
+        if label:
+            label_lower = label.lower().strip().rstrip(":").strip()
+            best = _find_best_match_value(label_lower, lower_map)
+            if best is not None:
+                return best
         for candidate in nearby:
             cand_lower = candidate.lower().strip().rstrip(":").strip()
-            for field_key, val in lower_map.items():
-                if _fuzzy_field_match(cand_lower, field_key):
-                    return val
+            best = _find_best_match_value(cand_lower, lower_map)
+            if best is not None:
+                return best
 
     return None
 
@@ -674,6 +711,86 @@ _STOP_WORDS = {
     "no", "each", "every", "such", "what", "which", "who", "whom",
     "how", "than", "very", "just", "about", "also", "only",
 }
+
+
+def _find_best_match_value(text: str, lower_map: Dict[str, str]) -> Optional[str]:
+    """Find the best matching value from lower_map using specificity scoring.
+
+    Instead of returning the FIRST fuzzy match (which depends on dict
+    iteration order and can pick the wrong value), this function scores
+    ALL candidates and returns the value with the highest specificity:
+      - Exact match: highest score
+      - Longer substring match > shorter substring match
+      - Higher word overlap > lower word overlap
+
+    This prevents short/generic aliases from winning over longer,
+    more specific ones (e.g. "name" should not beat "business name"
+    when matching "registered business name").
+    """
+    if not text:
+        return None
+
+    text_clean = text.rstrip(":").strip()
+    if not text_clean:
+        return None
+
+    text_np = re.sub(r"\([^)]*\)", "", text_clean).strip()
+    text_norm = re.sub(r"[_\-]", " ", text_clean).strip()
+    text_norm_np = re.sub(r"[_\-]", " ", text_np).strip() if text_np else text_norm
+    words_a = set(re.findall(r"[a-z]+", text_norm)) - _STOP_WORDS
+
+    best_val = None
+    best_score = 0.0
+
+    for fk, val in lower_map.items():
+        fk_clean = fk.rstrip(":").strip()
+        if not fk_clean:
+            continue
+
+        score = 0.0
+
+        # Exact match — highest priority
+        if text_clean == fk_clean:
+            score = 1000.0
+        # Substring: key fully in text (longer key = better match)
+        elif fk_clean in text_clean:
+            score = 500.0 + len(fk_clean)
+        # Substring: text fully in key
+        elif text_clean in fk_clean:
+            score = 400.0 + len(text_clean)
+        else:
+            # Try without parenthetical content
+            fk_np = re.sub(r"\([^)]*\)", "", fk_clean).strip()
+            fk_norm = re.sub(r"[_\-]", " ", fk_clean).strip()
+
+            if text_np and fk_np:
+                if fk_np in text_np:
+                    score = 450.0 + len(fk_np)
+                elif text_np in fk_np:
+                    score = 350.0 + len(text_np)
+
+            if score == 0.0 and text_norm and fk_norm:
+                if fk_norm in text_norm:
+                    score = 450.0 + len(fk_norm)
+                elif text_norm in fk_norm:
+                    score = 350.0 + len(text_norm)
+
+            # Word overlap (semantic closeness)
+            if score == 0.0 and words_a:
+                words_b = set(re.findall(r"[a-z]+", fk_norm if fk_norm else fk_clean)) - _STOP_WORDS
+                if words_b:
+                    overlap = words_a & words_b
+                    shorter = min(len(words_a), len(words_b))
+                    if shorter > 0:
+                        ratio = len(overlap) / shorter
+                        if ratio >= 0.6:
+                            score = 100.0 + ratio * 50 + len(overlap) * 10
+
+        if score > best_score:
+            best_score = score
+            best_val = val
+
+    return best_val
 
 
 def _fuzzy_field_match(text: str, field_key: str) -> bool:

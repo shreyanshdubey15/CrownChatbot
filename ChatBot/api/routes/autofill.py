@@ -8,6 +8,7 @@ Autofill Routes
 import os
 import uuid
 import shutil
+import logging
 from typing import Optional, List, Dict
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
@@ -22,6 +23,7 @@ from rag_pipeline.loader import load_single_doc
 from rag_pipeline.autofill_engine import AutofillEngine, FIELD_ALIASES
 from utils.form_filler import fill_pdf_form, fill_docx_form, safe_remove
 
+logger = logging.getLogger("autofill.routes")
 router = APIRouter(tags=["Autofill"])
 
 
@@ -36,30 +38,82 @@ def _build_expanded_value_map(fields: list) -> Dict[str, str]:
 
     This dramatically improves matching against PDF widget names
     and DOCX cell labels that may use different phrasing.
+
+    When multiple fields share the same canonical key, the BEST
+    value is selected — for name-type fields text values are preferred
+    over pure numbers.  The chosen canonical value is applied back to
+    the field list IN-PLACE so that the frontend also displays the
+    consistent correct value (not just the form-filler).
     """
+
+    # --- Canonical keys that should NEVER be pure numbers ---
+    _NAME_CANONICALS = {
+        "company_name", "authorized_representative", "contact_name",
+        "billing_contact", "technical_contact", "compliance_contact",
+        "entity_type", "state_of_incorporation", "country",
+        "address", "billing_address", "city", "state",
+    }
+
+    # ── Pass 1: collect ALL candidate values per canonical ──
+    canonical_candidates: Dict[str, list] = {}
+    for f in fields:
+        val = f.get("value")
+        conf = f.get("confidence", 0)
+        if not val or conf < 1.0:
+            continue
+        canonical = f.get("canonical")
+        if canonical:
+            canonical_candidates.setdefault(canonical, []).append(val)
+
+    # ── Choose best canonical value ──
+    canonical_values: Dict[str, str] = {}
+    for canonical, values in canonical_candidates.items():
+        if canonical in _NAME_CANONICALS:
+            # Prefer non-numeric values for name-type fields
+            text_values = [
+                v for v in values
+                if not v.strip().replace("-", "").replace(" ", "").isdigit()
+            ]
+            if text_values:
+                canonical_values[canonical] = text_values[0]
+            else:
+                canonical_values[canonical] = values[0]
+        else:
+            canonical_values[canonical] = values[0]
+
+    # ── Pass 2: build value_map AND fix field values in-place ──
     value_map: Dict[str, str] = {}
     for f in fields:
         val = f.get("value")
         conf = f.get("confidence", 0)
-        # STRICT: Only fill form with 100% confidence data
         if not val or conf < 1.0:
             continue
+
+        canonical = f.get("canonical")
+        effective_val = canonical_values.get(canonical, val) if canonical else val
+
+        # Update the field's own value for frontend consistency
+        if f["value"] != effective_val:
+            logger.info(
+                "[FIXUP] '%s': '%s' -> '%s' (canonical consistency)",
+                f.get("field", "?"),
+                str(f["value"])[:50],
+                str(effective_val)[:50],
+            )
+            f["value"] = effective_val
+
         # Primary key: detected field name
         field_name = f.get("field", "")
         if field_name:
-            value_map[field_name] = val
+            value_map[field_name] = effective_val
         # Canonical key + all aliases
-        canonical = f.get("canonical")
         if canonical:
-            # Add the canonical key itself (underscored)
-            value_map[canonical] = val
-            # Add readable canonical (spaces instead of underscores)
-            value_map[canonical.replace("_", " ")] = val
-            # Add ALL aliases from the dictionary
+            value_map[canonical] = effective_val
+            value_map[canonical.replace("_", " ")] = effective_val
             if canonical in FIELD_ALIASES:
                 for alias in FIELD_ALIASES[canonical]:
-                    if alias not in value_map:  # Don't overwrite earlier entries
-                        value_map[alias] = val
+                    if alias not in value_map:
+                        value_map[alias] = effective_val
     return value_map
 
 
@@ -70,11 +124,15 @@ async def autofill_form(
     company_id: Optional[str] = Form(None, description="Company ID for scoped retrieval"),
 ):
     """Upload a form → Detect fields → Retrieve data → Autofill → Fill original form."""
+    logger.info("-" * 55)
+    logger.info("[AUTOFILL] REQUEST: file=%s  company=%s", file.filename, company_id or "(none)")
+
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided.")
 
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
     if not any(f".{ext}" == e for e in ALL_SUPPORTED_EXTS):
+        logger.warning("Unsupported format: .%s", ext)
         raise HTTPException(status_code=400, detail=f"Supported formats: {', '.join(ALL_SUPPORTED_EXTS)}")
 
     file_id = str(uuid.uuid4())
@@ -82,42 +140,55 @@ async def autofill_form(
     try:
         with open(saved_path, "wb") as buf:
             shutil.copyfileobj(file.file, buf)
+        logger.info("[SAVED] File -> %s", saved_path)
     except Exception as exc:
+        logger.error("Failed to save file: %s", exc)
         raise HTTPException(status_code=500, detail=f"Failed to save file: {exc}")
 
     try:
+        logger.info("[TEXT] Extracting text from form...")
         docs = load_single_doc(saved_path)
         if not docs:
             raise ValueError("Could not extract text from the uploaded form.")
         form_text = "\n\n".join(d.page_content for d in docs)
+        logger.info("[TEXT] Extracted %d chars from %d page(s)", len(form_text), len(docs))
     except Exception as exc:
+        logger.error("Text extraction failed: %s", exc)
         safe_remove(saved_path)
         raise HTTPException(status_code=500, detail=f"Form text extraction failed: {exc}")
 
     try:
+        logger.info("[ENGINE] Running autofill engine...")
         engine: AutofillEngine = request.app.state.autofill_engine
         result = await engine.autofill_form_async(
             form_text=form_text,
             document_name=file.filename,
             company_id=company_id,
         )
+        logger.info("[ENGINE] Autofill engine done -- %d fields returned", len(result.get("fields", [])))
     except Exception as exc:
+        logger.error("Autofill engine error: %s", exc, exc_info=True)
         safe_remove(saved_path)
         raise HTTPException(status_code=500, detail=f"Autofill engine error: {exc}")
 
     fields_for_fill = result.get("fields", [])
     value_map = _build_expanded_value_map(fields_for_fill)
+    logger.info("[MAP] Value map has %d entries for form filling", len(value_map))
+    for k, v in value_map.items():
+        logger.debug("   value_map[%s] = %s", k, v[:80] if v else "(empty)")
 
     filled_path = os.path.join(AUTOFILL_TEMP_DIR, f"{file_id}_filled.{ext}")
     try:
+        logger.info("[FILL] Filling %s form -> %s", ext.upper(), filled_path)
         if ext == "pdf":
             fill_pdf_form(saved_path, filled_path, value_map)
         elif ext in ("docx", "doc"):
             fill_docx_form(saved_path, filled_path, value_map)
         else:
             shutil.copy2(saved_path, filled_path)
+        logger.info("[OK] Form filled successfully")
     except Exception as exc:
-        print(f"[FILL WARNING] Could not fill form programmatically: {exc}")
+        logger.warning("[WARN] Could not fill form programmatically: %s", exc)
         shutil.copy2(saved_path, filled_path)
 
     meta = result.get("metadata", {})
@@ -125,17 +196,24 @@ async def autofill_form(
     meta["file_ext"] = ext
     result["metadata"] = meta
 
+    filled_count = sum(1 for f in fields_for_fill if f.get("value"))
+    logger.info("[RESULT] %d/%d fields filled  (file_id=%s)", filled_count, len(fields_for_fill), file_id)
+    logger.info("-" * 55)
+
     return result
 
 
 @router.post("/build-profile", response_model=BuildProfileResponse, summary="Build a Master Company Profile")
 async def build_profile(body: BuildProfileRequest, request: Request):
     """Entity Builder — creates a structured company profile from ALL documents."""
+    logger.info("[PROFILE] BUILD PROFILE: company=%s", body.company_id)
     try:
         engine: AutofillEngine = request.app.state.autofill_engine
         result = await engine.build_company_profile_async(body.company_id)
+        logger.info("[PROFILE] Profile built for %s -- %d fields", body.company_id, len(result.get("fields", [])))
         return result
     except Exception as exc:
+        logger.error("Profile build failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Profile build failed: {exc}")
 
 
@@ -144,17 +222,23 @@ def download_autofill_report(body: DownloadAutofillRequest):
     """Returns the programmatically filled document."""
     file_id  = body.metadata.file_id  if body.metadata else None
     file_ext = body.metadata.file_ext if body.metadata else None
+    logger.info("[DOWNLOAD] REQUEST: doc=%s  file_id=%s  ext=%s", body.document, file_id, file_ext)
 
     if not file_id or not file_ext:
+        logger.warning("Missing file_id/file_ext in metadata")
         raise HTTPException(status_code=400, detail="Missing file_id/file_ext in metadata. Re-run autofill.")
 
     filled_path = os.path.join(AUTOFILL_TEMP_DIR, f"{file_id}_filled.{file_ext}")
     if not os.path.exists(filled_path):
+        logger.warning("Filled form not found at %s", filled_path)
         raise HTTPException(status_code=404, detail="Filled form not found. Please re-run autofill.")
 
     safe_name = body.document.rsplit(".", 1)[0] if "." in body.document else body.document
     safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in safe_name).strip()
     filename = f"{safe_name}_Autofilled.{file_ext}"
+
+    file_size = os.path.getsize(filled_path)
+    logger.info("[DOWNLOAD] Serving %s (%d bytes) -> %s", filled_path, file_size, filename)
 
     mime_map = {
         "pdf":  "application/pdf",
@@ -238,6 +322,9 @@ async def refill_form(
     """
     import json as _json
 
+    logger.info("-" * 55)
+    logger.info("[REFILL] REQUEST: file=%s", file.filename)
+
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided.")
 
@@ -247,7 +334,9 @@ async def refill_form(
 
     try:
         fields = _json.loads(fields_json)
+        logger.info("[REFILL] Received %d edited fields from user", len(fields))
     except Exception:
+        logger.error("Invalid fields_json payload")
         raise HTTPException(status_code=400, detail="Invalid fields_json.")
 
     file_id = str(uuid.uuid4())
@@ -256,27 +345,37 @@ async def refill_form(
     try:
         with open(saved_path, "wb") as buf:
             shutil.copyfileobj(file.file, buf)
+        logger.info("[SAVED] File -> %s", saved_path)
     except Exception as exc:
+        logger.error("Failed to save file: %s", exc)
         raise HTTPException(status_code=500, detail=f"Failed to save file: {exc}")
 
     # Build expanded value map from user-edited fields
     value_map = _build_expanded_value_map(fields)
+    logger.info("[MAP] Refill value map has %d entries", len(value_map))
+    for k, v in value_map.items():
+        logger.debug("   refill_map[%s] = %s", k, v[:80] if v else "(empty)")
 
     filled_path = os.path.join(AUTOFILL_TEMP_DIR, f"{file_id}_refilled.{ext}")
     try:
+        logger.info("[FILL] Re-filling %s form -> %s", ext.upper(), filled_path)
         if ext == "pdf":
             fill_pdf_form(saved_path, filled_path, value_map)
         elif ext in ("docx", "doc"):
             fill_docx_form(saved_path, filled_path, value_map)
         else:
             shutil.copy2(saved_path, filled_path)
+        logger.info("[OK] Refill done")
     except Exception as exc:
-        print(f"[REFILL WARNING] Could not fill form: {exc}")
+        logger.warning("[WARN] Could not refill form: %s", exc)
         shutil.copy2(saved_path, filled_path)
 
     safe_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
     safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in safe_name).strip()
     filename = f"{safe_name}_Autofilled.{ext}"
+
+    logger.info("[DOWNLOAD] Serving refilled document -> %s", filename)
+    logger.info("-" * 55)
 
     mime_map = {
         "pdf":  "application/pdf",

@@ -6,6 +6,7 @@ Ingestion Routes — Upload & Delete
 
 import os
 import shutil
+import logging
 from typing import List
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request, status
@@ -20,6 +21,7 @@ from rag_pipeline.file_registry import add_uploaded_file, clear_registry
 from memory.document_versions import get_document_version_store, reset_document_version_store
 from utils.form_filler import safe_remove
 
+logger = logging.getLogger("ingestion.routes")
 router = APIRouter(tags=["Ingestion"])
 
 
@@ -30,7 +32,11 @@ async def upload_doc(file: UploadFile = File(...), request: Request = None):
     Supports: PDF, Word, RTF, Excel, CSV, TSV, TXT, Markdown, images.
     Features: duplicate detection, document versioning, OCR for images.
     """
+    logger.info("-" * 55)
+    logger.info("[UPLOAD] %s", file.filename)
+
     if not file.filename or not any(file.filename.lower().endswith(ext) for ext in ALL_SUPPORTED_EXTS):
+        logger.warning("Unsupported format: %s", file.filename)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Supported formats: {', '.join(ALL_SUPPORTED_EXTS)}",
@@ -41,7 +47,9 @@ async def upload_doc(file: UploadFile = File(...), request: Request = None):
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+        logger.info("[SAVED] %s", file_path)
     except Exception as e:
+        logger.error("Save failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save file: {str(e)}",
@@ -57,7 +65,7 @@ async def upload_doc(file: UploadFile = File(...), request: Request = None):
         return JSONResponse(
             status_code=200,
             content={
-                "message": f"⚠️ Duplicate detected: {dup_check['message']}",
+                "message": f"[WARN] Duplicate detected: {dup_check['message']}",
                 "is_duplicate": True,
                 "document_id": dup_check["document_id"],
             },
@@ -71,23 +79,27 @@ async def upload_doc(file: UploadFile = File(...), request: Request = None):
 
     # 3. Process (load → chunk → store in vector DB)
     try:
+        logger.info("[LOAD] Extracting text...")
         docs = load_single_doc(file_path)
 
         if not docs:
+            logger.warning("No text extracted from %s", file.filename)
             add_uploaded_file(file.filename)
             return JSONResponse(
                 status_code=201,
                 content={
-                    "message": f"{file.filename} saved (no text extracted — not indexed in search)",
+                    "message": f"{file.filename} saved (no text extracted -- not indexed in search)",
                     "document_id": version_info.get("document_id"),
                     "chunks": 0,
                     "indexed": False,
                 },
             )
 
+        logger.info("[CHUNK] Chunking %d pages...", len(docs))
         chunks = chunk_documents(docs)
 
         if not chunks:
+            logger.warning("No chunks produced (content too short)")
             add_uploaded_file(file.filename)
             return JSONResponse(
                 status_code=201,
@@ -99,21 +111,27 @@ async def upload_doc(file: UploadFile = File(...), request: Request = None):
                 },
             )
 
+        logger.info("[STORE] Storing %d chunks in Weaviate...", len(chunks))
         store = WeaviateVectorStore(client=request.app.state.weaviate_client)
         store.store_chunks(chunks)
 
         add_uploaded_file(file.filename)
     except Exception as e:
+        logger.error("[ERR] Processing failed: %s", e, exc_info=True)
         safe_remove(file_path)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Processing failed: {str(e)}",
         )
 
+    logger.info("[OK] %s uploaded & indexed  (doc_id=%s, v%d)",
+                file.filename, version_info.get("document_id"), version_info.get("version_number", 1))
+    logger.info("-" * 55)
+
     return JSONResponse(
         status_code=201,
         content={
-            "message": f"{file.filename} uploaded and indexed 🚀",
+            "message": f"{file.filename} uploaded and indexed successfully",
             "document_id": version_info.get("document_id"),
             "version_number": version_info.get("version_number", 1),
             "is_new": version_info.get("is_new", True),
@@ -174,7 +192,7 @@ async def batch_upload(files: List[UploadFile] = File(...), request: Request = N
             if not docs:
                 add_uploaded_file(file.filename)
                 file_result["status"] = "success"
-                file_result["message"] = "Saved (no text extracted — not indexed)"
+                file_result["message"] = "Saved (no text extracted -- not indexed)"
                 file_result["document_id"] = version_info.get("document_id")
                 results.append(file_result)
                 continue

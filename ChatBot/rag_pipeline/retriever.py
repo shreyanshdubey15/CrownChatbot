@@ -10,9 +10,12 @@ on the KnowledgeBase collection.
 """
 
 import hashlib
+import logging
 import weaviate
 from weaviate.classes.query import MetadataQuery
 from rag_pipeline.embeddings import EmbeddingModel
+
+logger = logging.getLogger("retriever")
 
 
 class Retriever:
@@ -27,6 +30,7 @@ class Retriever:
         Hybrid search: BM25 + Vector with RRF fusion.
         Returns top_k most relevant document chunks.
         """
+        logger.debug("[SEARCH] Hybrid search: '%s'  top_k=%d", query[:80], top_k)
         # Run both searches in parallel-ish (sequential but fast)
         vector_results = self._vector_search(query, top_k=top_k * 3)
         bm25_results = self._bm25_search(query, top_k=top_k * 3)
@@ -57,7 +61,7 @@ class Retriever:
             )
             return self._parse_results(results, source="vector")
         except Exception as e:
-            print(f"[RETRIEVER] Vector search failed: {e}")
+            logger.warning("Vector search failed: %s", e)
             return []
 
     def _bm25_search(self, query, top_k=15):
@@ -70,7 +74,7 @@ class Retriever:
             )
             return self._parse_results(results, source="bm25")
         except Exception as e:
-            print(f"[RETRIEVER] BM25 search failed: {e}")
+            logger.warning("BM25 search failed: %s", e)
             return []
 
     def _parse_results(self, results, source="unknown"):
