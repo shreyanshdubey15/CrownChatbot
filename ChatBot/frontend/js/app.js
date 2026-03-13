@@ -1,5 +1,5 @@
 /* =============================================================
-   DocIntel — Document Intelligence Platform
+   Dial Phone — Elite Sales Intelligence
    Main Application JavaScript
    ============================================================= */
 
@@ -263,9 +263,15 @@ function renderActiveChat() {
     if (chat.messages.length === 0) {
         chatMessages.innerHTML = `
             <div class="empty-state" id="emptyState">
-                <div class="empty-icon">&#128172;</div>
-                <p>No messages yet</p>
-                <p class="hint">Upload a document first, then ask a question</p>
+                <div class="empty-icon">⚡</div>
+                <p>What can I help you with?</p>
+                <p class="hint">Ask about partners, compliance, routing, rates, or any document content</p>
+                <div class="suggestion-chips">
+                    <button class="suggestion-chip" onclick="useSuggestion('What services does Dial Phone provide?')">💼 Our Services</button>
+                    <button class="suggestion-chip" onclick="useSuggestion('What is the partner qualification process?')">🤝 Partner Qualification</button>
+                    <button class="suggestion-chip" onclick="useSuggestion('Explain the compliance requirements')">📋 Compliance</button>
+                    <button class="suggestion-chip" onclick="useSuggestion('What are the payment and billing terms?')">💳 Payment Terms</button>
+                </div>
             </div>
         `;
         return;
@@ -490,6 +496,13 @@ function initChat() {
     });
 }
 
+function useSuggestion(text) {
+    const questionInput = document.getElementById("questionInput");
+    questionInput.value = text;
+    questionInput.focus();
+    askQuestion();
+}
+
 async function askQuestion() {
     const questionInput = document.getElementById("questionInput");
     const askBtn = document.getElementById("askBtn");
@@ -513,7 +526,7 @@ async function askQuestion() {
     addMessageToDOM(question, "user", false, true);
     questionInput.value = "";
 
-    const typingId = addMessageToDOM('<span class="spinner"></span> Thinking...', "bot", true, true);
+    const typingId = addMessageToDOM('<div class="thinking-indicator"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-label">Analyzing documents...</span></div>', "bot", true, true);
     askBtn.disabled = true;
     questionInput.disabled = true;
 
@@ -576,7 +589,20 @@ function addBotAnswerToDOM(answer, sources, animate = true) {
     const chatMessages = document.getElementById("chatMessages");
     const msg = document.createElement("div");
     msg.className = "msg bot" + (animate ? "" : " no-anim");
+
     let html = `<div class="answer-text">${renderMarkdown(answer)}</div>`;
+
+    // Action bar (copy, like)
+    const msgId = 'botmsg-' + (++messageCounter);
+    html += `<div class="msg-actions">
+        <button class="msg-action-btn" onclick="copyBotAnswer(this)" title="Copy answer">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span>Copy</span>
+        </button>
+        <button class="msg-action-btn" onclick="toggleReaction(this, '👍')" title="Helpful">👍</button>
+        <button class="msg-action-btn" onclick="toggleReaction(this, '👎')" title="Not helpful">👎</button>
+    </div>`;
+
     if (sources && sources.length > 0) {
         const sourceMap = new Map();
         sources.forEach(src => {
@@ -589,17 +615,37 @@ function addBotAnswerToDOM(answer, sources, animate = true) {
             if (src.retrieval_source) entry.methods.add(src.retrieval_source);
         });
 
-        html += `<div class="sources-section"><div class="sources-label">Sources (${sourceMap.size} document${sourceMap.size > 1 ? 's' : ''})</div>`;
+        html += `<div class="sources-section"><div class="sources-label">&#128218; Sources (${sourceMap.size} document${sourceMap.size > 1 ? 's' : ''})</div><div class="sources-chips">`;
         sourceMap.forEach(entry => {
             const pages = [...entry.pages].sort((a, b) => a - b);
             const pageStr = pages.length > 0 ? ` p.${pages.join(', ')}` : "";
             html += `<span class="source-chip">&#128196; ${escapeHtml(entry.name)}${pageStr}</span>`;
         });
-        html += `</div>`;
+        html += `</div></div>`;
     }
+
     msg.innerHTML = html;
+    msg.dataset.rawAnswer = answer;
     chatMessages.appendChild(msg);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function copyBotAnswer(btn) {
+    const msg = btn.closest('.msg.bot');
+    const raw = msg.dataset.rawAnswer || msg.querySelector('.answer-text')?.innerText || '';
+    navigator.clipboard.writeText(raw).then(() => {
+        const label = btn.querySelector('span');
+        if (label) { label.textContent = 'Copied!'; setTimeout(() => { label.textContent = 'Copy'; }, 1500); }
+    });
+}
+
+function toggleReaction(btn, emoji) {
+    btn.classList.toggle('active');
+    if (btn.classList.contains('active')) {
+        // Deactivate sibling reaction buttons
+        const siblings = btn.parentElement.querySelectorAll('.msg-action-btn');
+        siblings.forEach(s => { if (s !== btn && (s.textContent.includes('👍') || s.textContent.includes('👎'))) s.classList.remove('active'); });
+    }
 }
 
 function removeMessage(id) {
@@ -879,11 +925,12 @@ function fadeVoiceStatus(delay) {
 }
 
 /* =============================================================
-   MARKDOWN RENDERER
+   MARKDOWN RENDERER — Enhanced
    ============================================================= */
 function renderMarkdown(text) {
     let html = escapeHtml(text);
 
+    // Inline formatting
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em>$1</em>');
     html = html.replace(/`([^`]+?)`/g, '<code>$1</code>');
@@ -892,56 +939,168 @@ function renderMarkdown(text) {
     let result = [];
     let inUl = false;
     let inOl = false;
+    let inNestedUl = false;   // <ul> nested inside an <ol> <li>
+    let olLiOpen = false;     // an <li> inside <ol> is open (not yet closed)
+    let inBlockquote = false;
+    let inTable = false;
+    let tableHeaderDone = false;
+
+    // Helper: close all nested list state
+    function closeNestedUl() {
+        if (inNestedUl) { result.push('</ul>'); inNestedUl = false; }
+    }
+    function closeOlLi() {
+        closeNestedUl();
+        if (olLiOpen) { result.push('</li>'); olLiOpen = false; }
+    }
+    function closeOl() {
+        closeOlLi();
+        if (inOl) { result.push('</ol>'); inOl = false; }
+    }
+    function closeUl() {
+        if (inUl) { result.push('</ul>'); inUl = false; }
+    }
+    function closeAllLists() {
+        closeOl();
+        closeUl();
+    }
+    function closeBq() {
+        if (inBlockquote) { result.push('</blockquote>'); inBlockquote = false; }
+    }
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const trimmed = line.trim();
 
+        // ── Table detection ──
+        if (/^\|(.+)\|$/.test(trimmed)) {
+            closeAllLists();
+            closeBq();
+
+            if (/^\|[\s\-:|]+\|$/.test(trimmed)) {
+                tableHeaderDone = true;
+                continue;
+            }
+
+            if (!inTable) {
+                result.push('<div class="md-table-wrap"><table class="md-table">');
+                inTable = true;
+                tableHeaderDone = false;
+            }
+
+            const cells = trimmed.split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
+            const tag = (!tableHeaderDone) ? 'th' : 'td';
+            const rowClass = (!tableHeaderDone) ? ' class="md-table-header"' : '';
+
+            if (!tableHeaderDone) {
+                result.push('<thead>');
+            }
+
+            result.push(`<tr${rowClass}>`);
+            cells.forEach(cell => {
+                result.push(`<${tag}>${cell.trim()}</${tag}>`);
+            });
+            result.push('</tr>');
+
+            if (!tableHeaderDone) {
+                const nextTrimmed = (i + 1 < lines.length) ? lines[i + 1].trim() : '';
+                if (/^\|[\s\-:|]+\|$/.test(nextTrimmed)) {
+                    // separator follows — will close thead after it
+                } else {
+                    result.push('</thead><tbody>');
+                    tableHeaderDone = true;
+                }
+            }
+
+            continue;
+        } else {
+            if (inTable) {
+                if (!tableHeaderDone) result.push('</thead>');
+                result.push('</tbody></table></div>');
+                inTable = false;
+                tableHeaderDone = false;
+            }
+        }
+
+        // ── Headers ──
         if (/^###\s+/.test(trimmed)) {
-            if (inUl) { result.push('</ul>'); inUl = false; }
-            if (inOl) { result.push('</ol>'); inOl = false; }
+            closeAllLists(); closeBq();
             result.push('<h3>' + trimmed.replace(/^###\s+/, '') + '</h3>');
         }
         else if (/^##\s+/.test(trimmed)) {
-            if (inUl) { result.push('</ul>'); inUl = false; }
-            if (inOl) { result.push('</ol>'); inOl = false; }
+            closeAllLists(); closeBq();
             result.push('<h2>' + trimmed.replace(/^##\s+/, '') + '</h2>');
         }
         else if (/^#\s+/.test(trimmed)) {
-            if (inUl) { result.push('</ul>'); inUl = false; }
-            if (inOl) { result.push('</ol>'); inOl = false; }
+            closeAllLists(); closeBq();
             result.push('<h1>' + trimmed.replace(/^#\s+/, '') + '</h1>');
         }
-        else if (/^[-*]\s+/.test(trimmed) && !/^(\*\*|<strong>)/.test(trimmed)) {
-            if (inOl) { result.push('</ol>'); inOl = false; }
-            if (!inUl) { result.push('<ul>'); inUl = true; }
-            result.push('<li>' + trimmed.replace(/^[-*]\s+/, '') + '</li>');
-        }
-        else if (/^\d+[\.\)]\s+/.test(trimmed)) {
-            if (inUl) { result.push('</ul>'); inUl = false; }
-            if (!inOl) { result.push('<ol>'); inOl = true; }
-            result.push('<li>' + trimmed.replace(/^\d+[\.\)]\s+/, '') + '</li>');
-        }
-        else {
-            if (inUl) { result.push('</ul>'); inUl = false; }
-            if (inOl) { result.push('</ol>'); inOl = false; }
 
+        // ── Unordered list item ──
+        else if (/^[-*]\s+/.test(trimmed) && !/^(\*\*|<strong>)/.test(trimmed)) {
+            closeBq();
+            const content = trimmed.replace(/^[-*]\s+/, '');
+
+            if (inOl && olLiOpen) {
+                // Nest as sub-list inside the current <ol> <li>
+                if (!inNestedUl) { result.push('<ul>'); inNestedUl = true; }
+                result.push('<li>' + content + '</li>');
+            } else {
+                closeOl();
+                if (!inUl) { result.push('<ul>'); inUl = true; }
+                result.push('<li>' + content + '</li>');
+            }
+        }
+
+        // ── Ordered list item ──
+        else if (/^\d+[\.\)]\s+/.test(trimmed)) {
+            closeBq();
+            closeUl();
+            // Close previous ordered item (including any nested sub-list)
+            closeOlLi();
+
+            if (!inOl) { result.push('<ol>'); inOl = true; }
+            // Open <li> but do NOT close it — sub-items may follow
+            result.push('<li>' + trimmed.replace(/^\d+[\.\)]\s+/, ''));
+            olLiOpen = true;
+        }
+
+        // ── Everything else ──
+        else {
+            // Blockquote
             if (/^&gt;\s*/.test(trimmed)) {
-                result.push('<blockquote>' + trimmed.replace(/^&gt;\s*/, '') + '</blockquote>');
-            }
-            else if (/^(---+|\*\*\*+)$/.test(trimmed)) {
-                result.push('<hr>');
-            }
-            else if (trimmed === '') {
-                result.push('');
+                closeAllLists();
+                if (!inBlockquote) { result.push('<blockquote>'); inBlockquote = true; }
+                result.push('<p>' + trimmed.replace(/^&gt;\s*/, '') + '</p>');
             }
             else {
-                result.push('<p>' + trimmed + '</p>');
+                // Empty lines inside an <ol> with an open <li> are OK — don't close
+                if (trimmed === '' && inOl && olLiOpen) {
+                    // skip empty line inside numbered item — keeps the <li> open for sub-items
+                    continue;
+                }
+
+                closeAllLists();
+                closeBq();
+
+                if (/^(---+|\*\*\*+|___+)$/.test(trimmed)) {
+                    result.push('<hr>');
+                }
+                else if (trimmed === '') {
+                    result.push('');
+                }
+                else {
+                    result.push('<p>' + trimmed + '</p>');
+                }
             }
         }
     }
-    if (inUl) result.push('</ul>');
-    if (inOl) result.push('</ol>');
+    closeAllLists();
+    closeBq();
+    if (inTable) {
+        if (!tableHeaderDone) result.push('</thead>');
+        result.push('</tbody></table></div>');
+    }
 
     return result.join('\n').replace(/(<\/p>\n*<p>)/g, '</p><p>');
 }

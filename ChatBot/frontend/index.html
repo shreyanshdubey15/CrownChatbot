@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DocIntel — Document Intelligence Platform</title>
+    <title>Dial Phone — Elite Sales Intelligence</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -21,8 +21,8 @@
              ============================================================ -->
         <aside class="sidebar">
             <div class="sidebar-brand">
-                <h1>DocIntel</h1>
-                <p>Document Intelligence Platform</p>
+                <h1>Dial Phone</h1>
+                <p>Elite Sales Intelligence</p>
             </div>
 
             <nav class="sidebar-nav">
@@ -106,15 +106,21 @@
                 <div class="main-header">
                     <div>
                         <h2 id="chatHeaderTitle">New Chat</h2>
-                        <span class="main-header-sub">Query your documents using natural language</span>
+                        <span class="main-header-sub">Carrier-Grade Telecom Sales Intelligence</span>
                     </div>
                 </div>
 
                 <div class="chat-messages" id="chatMessages">
                     <div class="empty-state" id="emptyState">
-                        <div class="empty-icon">&#128172;</div>
-                        <p>No messages yet</p>
-                        <p class="hint">Upload a document first, then ask a question</p>
+                        <div class="empty-icon">⚡</div>
+                        <p>What can I help you with?</p>
+                        <p class="hint">Ask about partners, compliance, routing, rates, or any document content</p>
+                        <div class="suggestion-chips">
+                            <button class="suggestion-chip" onclick="useSuggestion('What services does Dial Phone provide?')">💼 Our Services</button>
+                            <button class="suggestion-chip" onclick="useSuggestion('What is the partner qualification process?')">🤝 Partner Qualification</button>
+                            <button class="suggestion-chip" onclick="useSuggestion('Explain the compliance requirements')">📋 Compliance</button>
+                            <button class="suggestion-chip" onclick="useSuggestion('What are the payment and billing terms?')">💳 Payment Terms</button>
+                        </div>
                     </div>
                 </div>
 
@@ -124,7 +130,7 @@
                             class="chat-input"
                             type="text"
                             id="questionInput"
-                            placeholder="Ask something about your documents..."
+                            placeholder="Ask about partners, compliance, rates, or routing..."
                             autocomplete="off"
                         >
                         <button class="btn-voice" id="voiceBtn" onclick="toggleVoiceInput()" title="Voice input">

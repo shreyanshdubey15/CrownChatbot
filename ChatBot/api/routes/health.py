@@ -14,6 +14,8 @@ from config.constants import FRONTEND_DIR
 router = APIRouter()
 
 
+@router.get("/", tags=["Frontend"])
+@router.get("/dashboard", tags=["Frontend"])
 @router.get("/ui", tags=["Frontend"])
 def serve_frontend():
     """Serve the RAG Chatbot frontend."""

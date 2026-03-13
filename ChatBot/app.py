@@ -169,9 +169,9 @@ async def lifespan(app: FastAPI):
 # ─────────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="RAG Chatbot API",
-    description="Production-ready RAG system with PDF, DOCX, and DOC support",
-    version="1.0.0",
+    title="Dial Phone Elite Sales Intelligence API",
+    description="Carrier-Grade Telecom Sales AI — Tier-1 wholesale telecom sales strategist with RAG-powered document intelligence",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
